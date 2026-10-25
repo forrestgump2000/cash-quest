@@ -293,7 +293,7 @@ $('playBtn').onclick = () => {
   playing = true;
   player.yaw = 0;
   lockPointer();
-  if (state.found === 0) setTimeout(() => toast('Look for glowing loot! Press <b>E</b> to grab it', '#ffc93c'), 600);
+  if (state.found === 0) setTimeout(() => toast(isTouch ? 'Walk over glowing loot to grab it!' : 'Look for glowing loot! Press <b>E</b> to grab it', '#ffc93c'), 600);
 };
 $('resetBtn').onclick = () => {
   if (!confirm('Reset all progress?')) return;
@@ -597,7 +597,8 @@ if (isTouch) {
 
 const clock = new THREE.Clock();
 const radarCtx = $('radar').getContext('2d');
-let beepTimer = 0, saveTimer = 0, hudTimer = 0;
+let beepTimer = 0, saveTimer = 0, hudTimer = 0, bagFullNagAt = 0;
+const AUTO_PICKUP_RADIUS = 1.3;
 
 function resolveCollisions(p) {
   for (const c of world.colliders) {
@@ -719,6 +720,15 @@ function tick() {
     if (t >= respawnQueue[i].at) { spawnItem(respawnQueue[i].buried); respawnQueue.splice(i, 1); }
   }
 
+  // On touch devices, walking over loot drops it straight into the backpack.
+  if (active && isTouch && !digging) {
+    const it = items.find((i) => !i.buried && Math.hypot(i.x - player.pos.x, i.z - player.pos.z) < AUTO_PICKUP_RADIUS);
+    if (it) {
+      if (state.bag.length < capacity()) collect(it);
+      else if (t > bagFullNagAt) { bagFullNagAt = t + 4; sfx.error(); toast('🎒 Bag is full! Go sell at the $ station.', '#ff9b9b'); }
+    }
+  }
+
   // Interaction prompt
   if (active) {
     target = findTarget();
@@ -726,7 +736,11 @@ function tick() {
     const key = isTouch ? '<b>E</b> button' : '<b>E</b>';
     if (digging) pr.classList.add('hidden');
     else if (target?.type === 'station') { pr.innerHTML = `Press ${key} to Sell &amp; Shop`; pr.classList.remove('hidden'); }
-    else if (target?.type === 'item') { pr.innerHTML = `Press ${key} to grab <span style="color:${RARITIES[target.item.rarity].color}">${target.item.name}</span>`; pr.classList.remove('hidden'); }
+    else if (target?.type === 'item') {
+      const nm = `<span style="color:${RARITIES[target.item.rarity].color}">${target.item.name}</span>`;
+      pr.innerHTML = isTouch ? `Walk over ${nm} to grab it` : `Press ${key} to grab ${nm}`;
+      pr.classList.remove('hidden');
+    }
     else if (target?.type === 'dig') { pr.innerHTML = `📡 Something's buried here! Press ${key} to dig`; pr.classList.remove('hidden'); }
     else pr.classList.add('hidden');
   }
