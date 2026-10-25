@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Cash Quest</title>
+  <meta name="description" content="Hunt for hidden treasure in 3D, sell it, and upgrade your gear. From the junkyard to the museum!" />
+  <meta name="theme-color" content="#14110b" />
+  <link rel="icon" type="image/png" href="/icon-192.png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta property="og:title" content="Cash Quest" />
+  <meta property="og:description" content="Hunt for hidden treasure, sell it, and upgrade your gear." />
+  <meta property="og:image" content="/thumbnail.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:image" content="/thumbnail.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Nunito:wght@600;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <div id="game"></div>
+
+  <!-- HUD -->
+  <div id="hud" class="hidden">
+    <div id="topLeft">
+      <div id="money">$0</div>
+      <div id="locName">Junkyard</div>
+      <div id="bag">🎒 0 / 5</div>
+      <div id="luckInfo"></div>
+    </div>
+    <canvas id="radar" width="180" height="180" class="hidden"></canvas>
+    <div id="crosshair"></div>
+    <div id="prompt" class="hidden"></div>
+    <div id="detector" class="hidden">
+      <div class="label">📡 SIGNAL</div>
+      <div class="meter"><div id="detFill"></div></div>
+    </div>
+    <div id="digBar" class="hidden"><div id="digFill"></div><span>Digging...</span></div>
+    <div id="toasts"></div>
+    <div id="hint">WASD move · Mouse look · E interact · F flashlight · Shift sprint · Esc pause</div>
+  </div>
+
+  <!-- Mobile controls -->
+  <div id="touch" class="hidden">
+    <div id="stick"><div id="knob"></div></div>
+    <button id="btnAct" class="tbtn">E</button>
+    <button id="btnLight" class="tbtn small">🔦</button>
+    <button id="btnSprint" class="tbtn small">🏃</button>
+    <button id="btnMenu" class="tbtn small">⏸</button>
+  </div>
+
+  <!-- Title screen -->
+  <div id="title" class="overlay">
+    <div class="titleCard">
+      <img src="/icon-512.png" alt="" class="titleIcon" />
+      <h1>CASH<span>QUEST</span></h1>
+      <p class="tag">Find treasure. Sell it. Get rich. Repeat.</p>
+      <button id="playBtn" class="big">▶ PLAY</button>
+      <div class="howto">
+        <div>🔍 Explore and pick up glowing loot with <b>E</b></div>
+        <div>📡 Buy a <b>metal detector</b> to dig up buried treasure</div>
+        <div>💰 Sell at the <b>$ station</b> and buy better gear</div>
+        <div>🗺️ Unlock the Beach, City, Warehouse and Museum</div>
+      </div>
+      <button id="resetBtn" class="link">Reset save</button>
+    </div>
+  </div>
+
+  <!-- Pause -->
+  <div id="pause" class="overlay hidden">
+    <div class="titleCard">
+      <h2>Paused</h2>
+      <button id="resumeBtn" class="big">▶ RESUME</button>
+    </div>
+  </div>
+
+  <!-- Station menu -->
+  <div id="station" class="overlay hidden">
+    <div class="panel">
+      <div class="panelHead">
+        <h2>💰 Sell &amp; Shop</h2>
+        <div id="stMoney">$0</div>
+        <button id="closeStation" class="x">✕</button>
+      </div>
+      <div class="tabs">
+        <button data-tab="sell" class="active">Sell</button>
+        <button data-tab="gear">Gear</button>
+        <button data-tab="luck">Luck</button>
+        <button data-tab="travel">Locations</button>
+      </div>
+      <div id="tabBody"></div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

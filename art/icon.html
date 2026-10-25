@@ -1,0 +1,43 @@
+<!doctype html><html><head><style>html,body{margin:0;background:transparent}</style></head><body>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2b5a3a"/><stop offset="1" stop-color="#0f2416"/></linearGradient>
+  <radialGradient id="glow" cx="0.5" cy="0.48" r="0.5"><stop offset="0" stop-color="#ffe27a" stop-opacity=".75"/><stop offset="1" stop-color="#ffe27a" stop-opacity="0"/></radialGradient>
+  <linearGradient id="coin" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff1a8"/><stop offset=".45" stop-color="#ffc93c"/><stop offset="1" stop-color="#c47a0a"/></linearGradient>
+  <linearGradient id="coinIn" x1="1" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#ffe27a"/><stop offset="1" stop-color="#d9900f"/></linearGradient>
+  <radialGradient id="lens" cx=".35" cy=".35" r=".8"><stop offset="0" stop-color="#ffffff" stop-opacity=".55"/><stop offset=".5" stop-color="#bfe8ff" stop-opacity=".18"/><stop offset="1" stop-color="#7fc8ff" stop-opacity=".3"/></radialGradient>
+</defs>
+<rect width="1024" height="1024" rx="230" fill="url(#bg)"/>
+<circle cx="512" cy="490" r="470" fill="url(#glow)"/>
+<!-- dirt mound -->
+<ellipse cx="512" cy="860" rx="380" ry="90" fill="#6e5338"/>
+<ellipse cx="512" cy="845" rx="330" ry="60" fill="#8a6a45"/>
+<!-- coin -->
+<g transform="translate(460 470) rotate(-12)">
+  <ellipse cx="0" cy="26" rx="270" ry="270" fill="#8a5408"/>
+  <circle r="270" fill="url(#coin)"/>
+  <circle r="215" fill="url(#coinIn)"/>
+  <circle r="215" fill="none" stroke="#fff3b8" stroke-width="10" stroke-opacity=".6"/>
+  <text x="0" y="12" text-anchor="middle" dominant-baseline="middle" font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="330" fill="#a8640a">$</text>
+  <text x="-8" y="2" text-anchor="middle" dominant-baseline="middle" font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="330" fill="#fff6c8">$</text>
+</g>
+<!-- magnifier -->
+<g transform="translate(690 650) rotate(40)">
+  <rect x="-34" y="120" width="68" height="250" rx="30" fill="#5a2a12"/>
+  <rect x="-24" y="128" width="20" height="230" rx="10" fill="#8a4a24"/>
+  <rect x="-42" y="100" width="84" height="50" rx="12" fill="#c0c4cc"/>
+  <circle r="140" fill="url(#lens)"/>
+  <circle r="140" fill="none" stroke="#2a2d36" stroke-width="34"/>
+  <circle r="140" fill="none" stroke="#9aa0ad" stroke-width="12"/>
+  <path d="M -80 -50 A 95 95 0 0 1 -30 -95" stroke="#fff" stroke-width="18" fill="none" stroke-linecap="round" opacity=".8"/>
+</g>
+<!-- sparkles -->
+<g fill="#fffbe0">
+  <path d="M220 230 l18 52 52 18 -52 18 -18 52 -18 -52 -52 -18 52 -18z"/>
+  <path d="M800 200 l12 34 34 12 -34 12 -12 34 -12 -34 -34 -12 34 -12z"/>
+  <path d="M830 470 l9 26 26 9 -26 9 -9 26 -9 -26 -26 -9 26 -9z"/>
+</g>
+<!-- gems -->
+<polygon points="200,770 240,720 290,720 330,770 265,840" fill="#4ade80" stroke="#1d7a44" stroke-width="8"/>
+<polygon points="770,800 800,760 840,760 870,800 820,855" fill="#60a5fa" stroke="#1d4f9a" stroke-width="7"/>
+</svg></body></html>

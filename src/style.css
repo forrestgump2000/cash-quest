@@ -1,0 +1,155 @@
+:root {
+  --gold: #ffc93c;
+  --gold-dark: #c98a12;
+  --ink: #fff8e7;
+  --panel: rgba(22, 18, 12, 0.94);
+  --line: rgba(255, 201, 60, 0.25);
+  --green: #4ade80;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; height: 100%; overflow: hidden; background: #14110b; color: var(--ink);
+  font-family: 'Nunito', system-ui, sans-serif; user-select: none; -webkit-user-select: none;
+  touch-action: none;
+}
+#game, #game canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+.hidden { display: none !important; }
+
+/* HUD */
+#hud { position: fixed; inset: 0; pointer-events: none; }
+#topLeft {
+  position: absolute; top: 14px; left: 14px; padding: 10px 16px; border-radius: 14px;
+  background: rgba(0,0,0,0.45); backdrop-filter: blur(4px); min-width: 170px;
+}
+#money { font-family: 'Lilita One', sans-serif; font-size: 34px; color: var(--gold); text-shadow: 0 2px 0 #7a4b00; line-height: 1; }
+#money.bump { animation: bump .4s; }
+@keyframes bump { 40% { transform: scale(1.18); color: #fff; } }
+#locName { font-weight: 800; opacity: .85; margin-top: 4px; }
+#bag { font-weight: 800; margin-top: 2px; }
+#bag.full { color: #ff6b6b; }
+#luckInfo { font-size: 13px; color: var(--green); font-weight: 800; }
+#radar {
+  position: absolute; top: 14px; right: 14px; width: 160px; height: 160px; border-radius: 50%;
+  border: 3px solid rgba(255,201,60,.6); background: rgba(0,20,10,.55);
+}
+#crosshair {
+  position: absolute; left: 50%; top: 50%; width: 8px; height: 8px; margin: -4px 0 0 -4px;
+  border-radius: 50%; background: rgba(255,255,255,.85); box-shadow: 0 0 4px #000;
+}
+#prompt {
+  position: absolute; left: 50%; top: 58%; transform: translateX(-50%); padding: 8px 16px; border-radius: 10px;
+  background: rgba(0,0,0,.6); font-weight: 800; font-size: 18px; white-space: nowrap;
+}
+#prompt b { color: var(--gold); }
+#detector {
+  position: absolute; left: 50%; bottom: 60px; transform: translateX(-50%); width: 280px; text-align: center;
+}
+#detector .label { font-weight: 800; font-size: 13px; letter-spacing: 2px; text-shadow: 0 1px 3px #000; }
+#detector .meter { height: 14px; border-radius: 8px; background: rgba(0,0,0,.55); overflow: hidden; border: 2px solid rgba(255,255,255,.3); }
+#detFill { height: 100%; width: 0%; background: linear-gradient(90deg, #4ade80, #facc15, #ef4444); transition: width .1s; }
+#digBar {
+  position: absolute; left: 50%; top: 64%; transform: translateX(-50%); width: 220px; height: 22px; border-radius: 11px;
+  background: rgba(0,0,0,.6); overflow: hidden; text-align: center; font-weight: 800; line-height: 22px;
+}
+#digFill { position: absolute; inset: 0; width: 0; background: #a16207; }
+#digBar span { position: relative; }
+#toasts { position: absolute; left: 50%; top: 18%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.toast {
+  padding: 8px 18px; border-radius: 12px; background: rgba(0,0,0,.7); font-weight: 800; font-size: 18px;
+  animation: toastIn .25s ease-out, toastOut .4s ease-in 2.4s forwards; white-space: nowrap; border: 2px solid transparent;
+}
+@keyframes toastIn { from { transform: translateY(-10px) scale(.9); opacity: 0; } }
+@keyframes toastOut { to { opacity: 0; transform: translateY(-8px); } }
+#hint { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); font-size: 13px; opacity: .65; text-shadow: 0 1px 2px #000; white-space: nowrap; }
+
+/* Overlays */
+.overlay {
+  position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px;
+  background: radial-gradient(ellipse at center, rgba(40,28,8,.75), rgba(0,0,0,.9));
+}
+.titleCard { text-align: center; max-width: 520px; }
+.titleIcon { width: 110px; height: 110px; border-radius: 26px; box-shadow: 0 10px 40px rgba(255,201,60,.35); }
+h1 {
+  font-family: 'Lilita One', sans-serif; font-size: clamp(48px, 12vw, 92px); margin: 10px 0 0; line-height: .95;
+  color: var(--gold); text-shadow: 0 5px 0 #7a4b00, 0 10px 30px rgba(0,0,0,.6); letter-spacing: 2px;
+}
+h1 span { color: #fff; margin-left: 12px; }
+h2 { font-family: 'Lilita One', sans-serif; font-weight: 400; margin: 0; color: var(--gold); font-size: 28px; }
+.tag { font-size: 18px; opacity: .85; margin: 8px 0 22px; }
+button { font-family: inherit; cursor: pointer; }
+button.big {
+  font-family: 'Lilita One', sans-serif; font-size: 30px; padding: 12px 48px; border-radius: 16px; border: none;
+  color: #3a2300; background: linear-gradient(#ffe07a, var(--gold) 50%, var(--gold-dark));
+  box-shadow: 0 6px 0 #7a4b00, 0 10px 25px rgba(0,0,0,.5); transition: transform .1s;
+}
+button.big:hover { transform: translateY(-2px); }
+button.big:active { transform: translateY(3px); box-shadow: 0 3px 0 #7a4b00; }
+.howto { margin-top: 24px; display: grid; gap: 6px; font-size: 15px; text-align: left; background: rgba(0,0,0,.35); padding: 14px 18px; border-radius: 14px; }
+.howto b { color: var(--gold); }
+button.link { margin-top: 14px; background: none; border: none; color: rgba(255,255,255,.4); text-decoration: underline; font-size: 13px; }
+
+/* Station panel */
+.panel {
+  width: min(760px, 100%); height: min(660px, calc(100vh - 32px)); display: flex; flex-direction: column;
+  background: var(--panel); border: 2px solid var(--line); border-radius: 20px; box-shadow: 0 20px 60px rgba(0,0,0,.6);
+}
+.panelHead { display: flex; align-items: center; gap: 12px; padding: 16px 20px 10px; }
+.panelHead h2 { flex: 1; }
+#stMoney { font-family: 'Lilita One', sans-serif; font-size: 28px; color: var(--gold); }
+.x { background: rgba(255,255,255,.1); border: none; color: #fff; width: 36px; height: 36px; border-radius: 10px; font-size: 18px; }
+.tabs { display: flex; gap: 6px; padding: 0 20px; border-bottom: 2px solid var(--line); }
+.tabs button {
+  flex: 1; padding: 10px 6px; background: none; border: none; color: rgba(255,255,255,.6); font-weight: 800; font-size: 16px;
+  border-bottom: 3px solid transparent; margin-bottom: -2px;
+}
+.tabs button.active { color: var(--gold); border-bottom-color: var(--gold); }
+#tabBody { overflow-y: auto; padding: 16px 20px 20px; }
+.row {
+  display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 14px; background: rgba(255,255,255,.05);
+  margin-bottom: 8px;
+}
+.row .ico { font-size: 30px; width: 40px; text-align: center; }
+.row .info { flex: 1; min-width: 0; }
+.row .nm { font-weight: 800; font-size: 17px; }
+.row .ds { font-size: 13px; opacity: .7; }
+.row .lvl { font-size: 12px; color: var(--gold); font-weight: 800; }
+.buy {
+  padding: 9px 14px; border-radius: 10px; border: none; font-weight: 800; font-size: 15px; min-width: 110px;
+  background: var(--green); color: #052e12; white-space: nowrap;
+}
+.buy:disabled { background: rgba(255,255,255,.12); color: rgba(255,255,255,.4); cursor: default; }
+.buy.owned { background: rgba(255,201,60,.18); color: var(--gold); }
+.itemList { display: grid; gap: 4px; margin-bottom: 14px; }
+.itemLine { display: flex; justify-content: space-between; padding: 6px 12px; border-radius: 8px; background: rgba(255,255,255,.04); font-weight: 700; }
+.sellAll { width: 100%; font-size: 22px; padding: 14px; }
+.empty { text-align: center; opacity: .6; padding: 30px 0; }
+.stats { margin-top: 14px; font-size: 13px; opacity: .6; text-align: center; }
+
+/* Touch controls */
+#touch { position: fixed; inset: 0; pointer-events: none; }
+#stick {
+  position: absolute; left: 28px; bottom: 28px; width: 130px; height: 130px; border-radius: 50%;
+  background: rgba(255,255,255,.12); border: 2px solid rgba(255,255,255,.25); pointer-events: auto;
+}
+#knob { position: absolute; left: 40px; top: 40px; width: 50px; height: 50px; border-radius: 50%; background: rgba(255,255,255,.45); }
+.tbtn {
+  position: absolute; pointer-events: auto; border-radius: 50%; border: 2px solid rgba(255,255,255,.35);
+  background: rgba(0,0,0,.4); color: #fff; font-weight: 800; font-size: 28px; width: 84px; height: 84px;
+}
+.tbtn.small { width: 56px; height: 56px; font-size: 22px; }
+#btnAct { right: 28px; bottom: 40px; background: rgba(255,201,60,.55); color: #3a2300; }
+#btnLight { right: 126px; bottom: 30px; }
+#btnSprint { right: 120px; bottom: 100px; }
+#btnMenu { right: 14px; top: 190px; }
+body.touch #hint { display: none; }
+body.touch #detector { bottom: 180px; }
+
+@media (max-width: 600px) {
+  #money { font-size: 26px; }
+  #topLeft { min-width: 0; padding: 8px 12px; font-size: 14px; }
+  #radar { width: 110px; height: 110px; }
+  #btnMenu { top: 136px; }
+  .row { flex-wrap: wrap; }
+  .buy { min-width: 0; }
+  #detector { width: 200px; }
+}
