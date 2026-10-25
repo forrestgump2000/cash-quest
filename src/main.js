@@ -1,6 +1,12 @@
 import * as THREE from 'three';
 import { RARITIES, RARITY_ORDER, LOCATIONS, LOCATION_ORDER, EQUIPMENT, EQUIPMENT_ORDER, LUCK_TIERS, POTION } from './data.js';
 import { buildWorld, makeItemMesh, glowTexture, makeDetectorModel } from './world.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 
 const $ = (id) => document.getElementById(id);
 const fmt = (n) => '$' + Math.round(n).toLocaleString();
@@ -13,6 +19,7 @@ const defaults = () => ({
   gear: { detector: 0, scanner: 0, flashlight: 0, backpack: 0, shoes: 0 },
   luck: 0, potionLeft: 0,
   unlocked: ['junkyard'], loc: 'junkyard', bag: [], best: null,
+  gfx: matchMedia('(pointer: coarse)').matches ? 'low' : 'high',
 });
 let state = defaults();
 try {
@@ -34,23 +41,63 @@ const effectiveLuck = () => {
 // ---------- Renderer / scene ----------
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 $('game').appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.05, 400);
+const camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.05, 900);
 scene.add(camera);
+
+// Image-based lighting so metal, gems and cars pick up reflections.
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+// Post-processing: bloom for glowing loot and lights, then a soft vignette.
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.45, 0.45, 1.0);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+composer.addPass(new ShaderPass({
+  uniforms: { tDiffuse: { value: null }, strength: { value: 0.35 } },
+  vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float strength; varying vec2 vUv;
+    void main() {
+      vec4 c = texture2D(tDiffuse, vUv);
+      float d = distance(vUv, vec2(0.5));
+      c.rgb *= 1.0 - smoothstep(0.35, 0.85, d) * strength;
+      c.rgb = mix(vec3(dot(c.rgb, vec3(0.299, 0.587, 0.114))), c.rgb, 1.08);
+      gl_FragColor = c;
+    }`,
+}));
+
+function applyQuality() {
+  const high = state.gfx === 'high';
+  renderer.setPixelRatio(Math.min(devicePixelRatio, high ? 2 : 1.25));
+  renderer.setSize(innerWidth, innerHeight);
+  composer.setPixelRatio(renderer.getPixelRatio());
+  composer.setSize(innerWidth, innerHeight);
+  renderer.shadowMap.enabled = high;
+  flashlight.castShadow = high;
+  scene.traverse((o) => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => (m.needsUpdate = true)); });
+  document.querySelectorAll('.gfxBtn').forEach((b) => (b.textContent = `Graphics: ${high ? 'HIGH ✨' : 'LOW ⚡'}`));
+}
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
+  composer.setSize(innerWidth, innerHeight);
 });
 
 const flashlight = new THREE.SpotLight(0xfff4dd, 0, 20, 0.5, 0.45, 1);
 flashlight.position.set(0.2, -0.1, 0);
 flashlight.target.position.set(0, -0.15, -1);
+flashlight.shadow.mapSize.set(1024, 1024);
+flashlight.shadow.bias = -0.0005;
+flashlight.shadow.camera.near = 0.3;
 camera.add(flashlight, flashlight.target);
 let lightOn = true;
 
@@ -117,8 +164,25 @@ function createItemVisual(it) {
   const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: R.color, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.85 }));
   const s = 1.3 + RARITY_ORDER.indexOf(it.rarity) * 0.4;
   glow.scale.set(s, s, s); glow.position.y = 0.45; g.add(glow);
+  const tierIdx = RARITY_ORDER.indexOf(it.rarity);
+  let beam = null, sparkles = null;
+  if (tierIdx >= 3) {
+    beam = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.35, 14, 12, 1, true), new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+      uniforms: { color: { value: new THREE.Color(R.color) }, time: { value: 0 } },
+      vertexShader: 'varying float vY; void main() { vY = uv.y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: 'uniform vec3 color; uniform float time; varying float vY; void main() { float a = pow(1.0 - vY, 2.0) * (0.55 + 0.15 * sin(time * 3.0 + vY * 12.0)); gl_FragColor = vec4(color * 1.6, a); }',
+    }));
+    beam.position.y = 7; g.add(beam);
+  }
+  if (tierIdx >= 2) {
+    const n = 6 + tierIdx * 4, pos = new Float32Array(n * 3);
+    const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    sparkles = new THREE.Points(geo, new THREE.PointsMaterial({ map: glowTexture(), color: R.color, size: 0.16, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    sparkles.userData.n = n; g.add(sparkles);
+  }
   g.position.set(it.x, 0, it.z);
-  g.userData = { inner: m, glow };
+  g.userData = { inner: m, glow, beam, sparkles };
   scene.add(g);
   return g;
 }
@@ -139,11 +203,13 @@ function loadLocation(id) {
   scene.add(world.group);
   scene.background = world.background;
   scene.fog = world.fog;
+  scene.environmentIntensity = world.envIntensity;
   for (let i = 0; i < SURFACE_COUNT; i++) spawnItem(false);
   for (let i = 0; i < BURIED_COUNT; i++) spawnItem(true);
   player.pos.set(0, 0, 4); player.yaw = 0; player.pitch = 0;
   $('locName').textContent = '📍 ' + LOCATIONS[id].name;
   applyGear();
+  applyQuality();
   save();
 }
 
@@ -231,6 +297,9 @@ $('resetBtn').onclick = () => {
   if (!confirm('Reset all progress?')) return;
   state = defaults(); save(); loadLocation('junkyard'); toast('Progress reset');
 };
+document.querySelectorAll('.gfxBtn').forEach((b) => (b.onclick = () => {
+  state.gfx = state.gfx === 'high' ? 'low' : 'high'; applyQuality(); save();
+}));
 $('resumeBtn').onclick = () => { $('pause').classList.add('hidden'); lockPointer(); };
 renderer.domElement.addEventListener('click', () => { if (playing && !menuOpen && !document.pointerLockElement) { $('pause').classList.add('hidden'); lockPointer(); } });
 document.addEventListener('pointerlockchange', () => {
@@ -559,7 +628,7 @@ function tick() {
   requestAnimationFrame(tick);
   const dt = Math.min(clock.getDelta(), 0.05);
   const t = clock.elapsedTime;
-  world.update(t);
+  world.update(t, camera);
 
   const active = playing && !menuOpen && $('pause').classList.contains('hidden');
   let moving = false;
@@ -597,11 +666,21 @@ function tick() {
   // Item animation
   for (const it of items) {
     if (!it.mesh) continue;
-    const { inner, glow } = it.mesh.userData;
+    const { inner, glow, beam, sparkles } = it.mesh.userData;
     inner.rotation.y += dt * 1.2;
     inner.position.y = 0.45 + Math.sin(t * 2 + it.phase) * 0.08;
     glow.position.y = inner.position.y;
-    glow.material.opacity = 0.6 + Math.sin(t * 3 + it.phase) * 0.25;
+    glow.material.opacity = 0.45 + Math.sin(t * 3 + it.phase) * 0.2;
+    if (beam) beam.material.uniforms.time.value = t;
+    if (sparkles) {
+      const p = sparkles.geometry.attributes.position, n = sparkles.userData.n;
+      for (let i = 0; i < n; i++) {
+        const a = t * 0.9 + (i / n) * Math.PI * 2 + it.phase, k = (t * 0.4 + i / n) % 1;
+        p.setXYZ(i, Math.cos(a) * 0.45, 0.1 + k * 1.2, Math.sin(a) * 0.45);
+      }
+      p.needsUpdate = true;
+      sparkles.material.size = 0.12 + Math.sin(t * 6 + it.phase) * 0.05;
+    }
   }
   for (let i = popAnims.length - 1; i >= 0; i--) {
     const p = popAnims[i]; p.t += dt;
@@ -660,7 +739,7 @@ function tick() {
   saveTimer -= dt;
   if (saveTimer <= 0) { saveTimer = 5; save(); }
 
-  renderer.render(scene, camera);
+  if (state.gfx === 'high') composer.render(); else renderer.render(scene, camera);
 }
 
 loadLocation(LOCATIONS[state.loc] && state.unlocked.includes(state.loc) ? state.loc : 'junkyard');

@@ -10,6 +10,19 @@ function mulberry32(seed) {
   };
 }
 
+function mergeGeos(geos) {
+  // Minimal non-indexed merge for simple prop geometry.
+  const parts = geos.map((g) => (g.index ? g.toNonIndexed() : g));
+  const total = parts.reduce((a, g) => a + g.attributes.position.count, 0);
+  const pos = new Float32Array(total * 3), nor = new Float32Array(total * 3);
+  let o = 0;
+  for (const g of parts) { pos.set(g.attributes.position.array, o * 3); nor.set(g.attributes.normal.array, o * 3); o += g.attributes.position.count; }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  out.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  return out;
+}
+
 const matCache = new Map();
 function mat(color, opts = {}) {
   const key = color + JSON.stringify(opts);
@@ -41,11 +54,15 @@ function noiseFill(ctx, s, base, spread, count, rnd, sizeMax = 3) {
 
 function groundTexture(type, rnd) {
   switch (type) {
-    case 'dirt': return canvasTexture(256, (g, s) => {
+    case 'dirt': return canvasTexture(512, (g, s) => {
       noiseFill(g, s, '#6e5338', 0.25, 4000, rnd, 4);
       for (let i = 0; i < 40; i++) { g.fillStyle = 'rgba(60,40,25,.35)'; g.beginPath(); g.arc(rnd() * s, rnd() * s, 4 + rnd() * 14, 0, 7); g.fill(); }
     }, 24);
-    case 'sand': return canvasTexture(256, (g, s) => noiseFill(g, s, '#e8d29a', 0.18, 6000, rnd, 2), 30);
+    case 'sand': return canvasTexture(512, (g, s) => {
+      noiseFill(g, s, '#d8bf86', 0.2, 20000, rnd, 2);
+      g.strokeStyle = 'rgba(150,120,70,.18)'; g.lineWidth = 3;
+      for (let i = 0; i < 18; i++) { const y = rnd() * s; g.beginPath(); g.moveTo(0, y); for (let x = 0; x <= s; x += 16) g.lineTo(x, y + Math.sin(x * 0.03 + i) * 8); g.stroke(); }
+    }, 22);
     case 'asphalt': return canvasTexture(256, (g, s) => noiseFill(g, s, '#3a3b40', 0.2, 6000, rnd, 2), 30);
     case 'concrete': return canvasTexture(256, (g, s) => {
       noiseFill(g, s, '#5c5c58', 0.15, 3000, rnd, 3);
@@ -72,6 +89,68 @@ function textTexture(lines, w, h, bg, fg) {
     g.font = ln.font; g.fillText(ln.text, w / 2, h * (i + 1) / (lines.length + 1));
   });
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+
+// ---------- Sky ----------
+
+const SKIES = {
+  junkyard: { top: '#3b4f86', horizon: '#ffb37a', bottom: '#8a5a3a', sun: [-40, 22, 20], sunColor: '#ffc078', sunSize: 1600, clouds: '#ffc8a8' },
+  beach: { top: '#1f6fd1', horizon: '#c9ecff', bottom: '#9fd3ef', sun: [30, 50, 20], sunColor: '#fffbe8', sunSize: 1400, clouds: '#ffffff' },
+  city: { top: '#03050c', horizon: '#26304f', bottom: '#10131c', sun: [-20, 40, -30], sunColor: '#dfe8ff', sunSize: 3000, stars: true },
+};
+
+function makeSky(cfg) {
+  const g = new THREE.Group();
+  const mat = new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, fog: false,
+    uniforms: {
+      top: { value: new THREE.Color(cfg.top) }, horizon: { value: new THREE.Color(cfg.horizon) }, bottom: { value: new THREE.Color(cfg.bottom) },
+      sunDir: { value: new THREE.Vector3(...cfg.sun).normalize() }, sunColor: { value: new THREE.Color(cfg.sunColor) }, sunSize: { value: cfg.sunSize },
+    },
+    vertexShader: `varying vec3 vDir;
+      void main() { vDir = position; vec4 p = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_Position = p.xyww; }`,
+    fragmentShader: `uniform vec3 top, horizon, bottom, sunColor, sunDir; uniform float sunSize; varying vec3 vDir;
+      void main() {
+        vec3 d = normalize(vDir); float h = d.y;
+        vec3 col = h > 0.0 ? mix(horizon, top, pow(h, 0.55)) : mix(horizon, bottom, pow(-h, 0.35));
+        float s = max(dot(d, sunDir), 0.0);
+        col += sunColor * (smoothstep(1.0 - 1.0 / sunSize * 6.0, 1.0 - 1.0 / sunSize * 4.0, s) * 1.6 + pow(s, 48.0) * 0.3 + pow(s, 6.0) * 0.08);
+        gl_FragColor = vec4(col, 1.0);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }`,
+  });
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(400, 32, 16), mat);
+  dome.renderOrder = -10; dome.frustumCulled = false; g.add(dome);
+  if (cfg.stars) {
+    const n = 1500, pos = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      const u = Math.random() * Math.PI * 2, v = Math.acos(Math.random() * 0.95);
+      pos.set([Math.sin(v) * Math.cos(u) * 380, Math.cos(v) * 380, Math.sin(v) * Math.sin(u) * 380], i * 3);
+    }
+    const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const stars = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffffff, size: 1.6, sizeAttenuation: false, fog: false, transparent: true, opacity: 0.85, depthWrite: false }));
+    stars.frustumCulled = false; g.add(stars);
+    const moon = new THREE.Mesh(new THREE.SphereGeometry(9, 24, 16), new THREE.MeshBasicMaterial({ color: 0xf4f1e0, fog: false }));
+    moon.position.copy(new THREE.Vector3(...cfg.sun).normalize().multiplyScalar(330)); g.add(moon);
+  }
+  if (cfg.clouds) {
+    const cm = new THREE.MeshLambertMaterial({ color: cfg.clouds, emissive: cfg.clouds, emissiveIntensity: 0.35, fog: false, flatShading: true });
+    for (let i = 0; i < 16; i++) {
+      const c = new THREE.Group();
+      const a = (i / 16) * Math.PI * 2 + Math.random() * 0.3;
+      c.position.set(Math.cos(a) * 300, 70 + Math.random() * 60, Math.sin(a) * 300);
+      c.lookAt(0, c.position.y, 0);
+      const puffs = 4 + Math.floor(Math.random() * 4);
+      for (let j = 0; j < puffs; j++) {
+        const p = new THREE.Mesh(new THREE.IcosahedronGeometry(10 + Math.random() * 10, 1), cm);
+        p.position.set((j - puffs / 2) * 13 + Math.random() * 6, Math.random() * 6, Math.random() * 8);
+        p.scale.y = 0.55; c.add(p);
+      }
+      g.add(c);
+    }
+  }
+  return g;
 }
 
 // ---------- World builder ----------
@@ -101,13 +180,28 @@ export function buildWorld(id, loc) {
     return m;
   };
   const clearOfSpawn = (x, z, r = 12) => Math.hypot(x, z) > r;
+  let sunLight = null;
+  const addSun = (color, intensity, x, y, z) => {
+    const sl = new THREE.DirectionalLight(color, intensity);
+    sl.userData.offset = new THREE.Vector3(x, y, z).normalize().multiplyScalar(70);
+    sl.castShadow = true;
+    sl.shadow.mapSize.set(2048, 2048);
+    const c = sl.shadow.camera; c.left = -40; c.right = 40; c.top = 40; c.bottom = -40; c.near = 1; c.far = 180;
+    sl.shadow.bias = -0.0004; sl.shadow.normalBias = 0.04;
+    group.add(sl, sl.target); sunLight = sl;
+    return sl;
+  };
 
   // Ground
-  const groundMat = new THREE.MeshStandardMaterial({ map: groundTexture(loc.ground, rnd), roughness: loc.ground === 'marble' ? 0.35 : 0.95 });
+  const gTex = groundTexture(loc.ground, rnd);
+  const groundMat = new THREE.MeshStandardMaterial({ map: gTex, bumpMap: gTex, bumpScale: loc.ground === 'marble' ? 0.2 : 2.5, roughness: loc.ground === 'marble' ? 0.18 : 0.95, metalness: loc.ground === 'marble' ? 0.1 : 0 });
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(half * 2 + 200, half * 2 + 200), groundMat);
-  ground.rotation.x = -Math.PI / 2; group.add(ground);
+  ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; ground.userData.noCast = true; group.add(ground);
 
   const scene = { background: new THREE.Color(loc.sky), fog: new THREE.Fog(...loc.fog) };
+  const skyCfg = SKIES[id];
+  const sky = skyCfg ? makeSky(skyCfg) : null;
+  if (sky) { group.add(sky); scene.fog.color.set(skyCfg.horizon).lerp(new THREE.Color(loc.fog[0]), 0.35); scene.background = scene.fog.color.clone(); }
 
   // Sell station
   const station = new THREE.Group();
@@ -131,7 +225,7 @@ export function buildWorld(id, loc) {
   );
   beacon.position.set(stx, 30, stz - 0.5); group.add(beacon);
   animated.push((t) => { beacon.material.opacity = 0.12 + Math.sin(t * 2) * 0.05; });
-  const stLight = new THREE.PointLight(0xffe7a8, 25, 14, 1.4);
+  const stLight = new THREE.PointLight(0xffe7a8, 12, 12, 1.4);
   stLight.position.set(stx, 3, stz + 1.5); group.add(stLight);
 
   const builders = { junkyard, beach, city, warehouse, museum };
@@ -139,7 +233,7 @@ export function buildWorld(id, loc) {
 
   function junkyard() {
     group.add(new THREE.HemisphereLight(0xffd8a8, 0x4a3520, 1.1));
-    const sun = new THREE.DirectionalLight(0xffa860, 2.2); sun.position.set(-40, 25, 20); group.add(sun);
+    addSun(0xffb070, 3.2, -40, 22, 20);
     // Fence
     const fenceMat = mat('#7d7d78', { metalness: 0.5, roughness: 0.6 });
     for (const s of [-1, 1]) {
@@ -187,27 +281,53 @@ export function buildWorld(id, loc) {
       }
       colliders.push({ minX: x - 0.7, maxX: x + 0.7, minZ: z - 0.7, maxZ: z + 0.7 });
     }
+    // Burning barrels
+    for (const [bx, bz] of [[14, 10], [-16, -14], [20, -26]]) {
+      addCyl(0.45, 0.45, 1.1, '#4a3a2a', bx, 0, bz, { material: mat('#5a3d28', { metalness: 0.6, roughness: 0.7 }) });
+      const flames = [];
+      for (let f = 0; f < 3; f++) {
+        const fl = new THREE.Mesh(new THREE.ConeGeometry(0.3 - f * 0.06, 0.9 - f * 0.15, 7), new THREE.MeshBasicMaterial({ color: new THREE.Color([0xff5a1a, 0xff9a2a, 0xffe07a][f]).multiplyScalar(2.5), transparent: true, opacity: 0.9, depthWrite: false }));
+        fl.position.set(bx, 1.45, bz); fl.userData.noCast = true; group.add(fl); flames.push(fl);
+      }
+      const fire = new THREE.PointLight(0xff8a3a, 40, 16, 1.5); fire.position.set(bx, 2.2, bz); group.add(fire);
+      const seed = rnd() * 10;
+      animated.push((t) => {
+        flames.forEach((fl, f) => { fl.scale.y = 1 + Math.sin(t * (9 + f * 3) + seed) * 0.25; fl.rotation.y = t * (1 + f); });
+        fire.intensity = 34 + Math.sin(t * 17 + seed) * 6 + Math.sin(t * 7 + seed) * 5;
+      });
+    }
     // Crane
     addBox(1.2, 14, 1.2, '#e0a020', 30, 0, -30);
     addBox(16, 1, 1, '#e0a020', 24, 14, -30, { collide: false });
   }
 
   function beach() {
-    group.add(new THREE.HemisphereLight(0xdff4ff, 0xe8d29a, 1.6));
-    const sun = new THREE.DirectionalLight(0xfff4e0, 2.6); sun.position.set(30, 50, 20); group.add(sun);
+    group.add(new THREE.HemisphereLight(0xcfe8ff, 0xb89a60, 0.7));
+    addSun(0xfff1d8, 2.2, 30, 50, 20);
     bounds.maxZ = 38;
     // Ocean
     const oceanGeo = new THREE.PlaneGeometry(400, 160, 60, 30);
-    const ocean = new THREE.Mesh(oceanGeo, new THREE.MeshStandardMaterial({ color: 0x1e88c8, roughness: 0.25, metalness: 0.1, transparent: true, opacity: 0.92 }));
+    const ocean = new THREE.Mesh(oceanGeo, new THREE.MeshStandardMaterial({ color: 0x1577b8, roughness: 0.06, metalness: 0.35, transparent: true, opacity: 0.9 }));
+    ocean.userData.noCast = true;
     ocean.rotation.x = -Math.PI / 2; ocean.position.set(0, 0.15, 42 + 80); group.add(ocean);
     const pos = oceanGeo.attributes.position; const base = Float32Array.from(pos.array);
     animated.push((t) => {
       for (let i = 0; i < pos.count; i++) {
         const x = base[i * 3], y = base[i * 3 + 1];
-        pos.array[i * 3 + 2] = Math.sin(x * 0.15 + t * 1.2) * 0.25 + Math.cos(y * 0.2 + t) * 0.2;
+        pos.array[i * 3 + 2] = Math.sin(x * 0.15 + t * 1.2) * 0.25 + Math.cos(y * 0.2 + t) * 0.2 + Math.sin((x + y) * 0.4 + t * 2.1) * 0.06;
       }
       pos.needsUpdate = true;
+      oceanGeo.computeVertexNormals();
+      foam.position.z = 40.2 + Math.sin(t * 0.8) * 1.2;
+      foam.material.opacity = 0.45 + Math.sin(t * 0.8 + 1.5) * 0.25;
     });
+    const foamTex = canvasTexture(256, (g, s) => {
+      g.clearRect(0, 0, s, s);
+      for (let i = 0; i < 260; i++) { g.fillStyle = `rgba(255,255,255,${0.3 + rnd() * 0.6})`; g.beginPath(); g.ellipse(rnd() * s, s / 2 + (rnd() - 0.5) * s * 0.5, 4 + rnd() * 14, 2 + rnd() * 4, 0, 0, 7); g.fill(); }
+    });
+    foamTex.repeat.set(30, 1);
+    const foam = new THREE.Mesh(new THREE.PlaneGeometry(400, 2.5), new THREE.MeshBasicMaterial({ map: foamTex, transparent: true, depthWrite: false }));
+    foam.rotation.x = -Math.PI / 2; foam.position.y = 0.32; foam.userData.noCast = true; group.add(foam);
     const wet = new THREE.Mesh(new THREE.PlaneGeometry(400, 6), mat('#c9b07a', { roughness: 0.5 }));
     wet.rotation.x = -Math.PI / 2; wet.position.set(0, 0.02, 41); group.add(wet);
     // Dunes / bounds
@@ -270,7 +390,7 @@ export function buildWorld(id, loc) {
 
   function city() {
     group.add(new THREE.HemisphereLight(0x6070b0, 0x202028, 0.9));
-    const moon = new THREE.DirectionalLight(0x9fb4ff, 1.0); moon.position.set(-20, 40, -30); group.add(moon);
+    addSun(0x9fb4ff, 1.1, -20, 40, -30);
     const winTex = (lit) => canvasTexture(128, (g, s) => {
       g.fillStyle = '#20232c'; g.fillRect(0, 0, s, s);
       for (let y = 0; y < 8; y++) for (let x = 0; x < 4; x++) {
@@ -280,7 +400,7 @@ export function buildWorld(id, loc) {
     });
     const tallMats = [0.35, 0.5, 0.2].map((lit) => {
       const t = winTex(lit);
-      return new THREE.MeshStandardMaterial({ map: t, emissiveMap: t, emissive: 0xffffff, emissiveIntensity: 0.9, roughness: 0.7 });
+      return new THREE.MeshStandardMaterial({ map: t, emissiveMap: t, emissive: 0xffffff, emissiveIntensity: 0.5, roughness: 0.7 });
     });
     const roofMat = mat('#2a2d36');
     const step = 26;
@@ -312,7 +432,7 @@ export function buildWorld(id, loc) {
     for (const o of [-step / 2, step / 2]) for (const p of [-step * 1.5, -step / 2, step / 2, step * 1.5]) {
       for (const [x, z] of [[o + 3.5, p], [p, o + 3.5]]) {
         addCyl(0.08, 0.1, 5, '#30333a', x, 0, z, { collide: true });
-        const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.3, 10, 8), new THREE.MeshBasicMaterial({ color: 0xffe2a0 }));
+        const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.3, 10, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffe2a0).multiplyScalar(5) }));
         bulb.position.set(x, 5.1, z); group.add(bulb);
         if (lights < 8 && rnd() < 0.6) {
           const pl = new THREE.PointLight(0xffd28a, 35, 16, 1.3); pl.position.set(x, 4.8, z); group.add(pl); lights++;
@@ -396,7 +516,7 @@ export function buildWorld(id, loc) {
     for (const [x, z] of [[-20, -20], [20, 15], [-15, 25], [25, -25]]) {
       const lamp = new THREE.Mesh(new THREE.ConeGeometry(0.6, 0.5, 12, 1, true), mat('#222', { side: THREE.DoubleSide }));
       lamp.position.set(x, H - 2, z); group.add(lamp);
-      const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.18), new THREE.MeshBasicMaterial({ color: 0xfff0c0 }));
+      const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.18), new THREE.MeshBasicMaterial({ color: new THREE.Color(0xfff0c0).multiplyScalar(5) }));
       bulb.position.set(x, H - 2.25, z); group.add(bulb);
       const pl = new THREE.PointLight(0xffe0a0, 30, 14, 1.4); pl.position.set(x, H - 2.6, z); group.add(pl);
       flicker.push({ pl, bulb, seed: rnd() * 100 });
@@ -487,10 +607,75 @@ export function buildWorld(id, loc) {
     for (let x = -9; x <= 9; x += 3) for (const z of [19, 25]) addCyl(0.06, 0.1, 1, '#c8a24a', x, 0, z, { collide: false });
     // Dim spotlights
     for (const [x, z] of [[-30, -30], [30, -30], [-30, 30], [30, 30], [0, 22]]) {
-      const sl = new THREE.SpotLight(0xfff0d0, 120, 22, 0.6, 0.5, 1.2);
+      const sl = new THREE.SpotLight(0xfff0d0, 70, 22, 0.6, 0.5, 1.2);
       sl.position.set(x, H - 0.3, z); sl.target.position.set(x, 0, z); group.add(sl, sl.target);
     }
   }
+
+  // Instanced ground detail
+  const scatter = (geo, material, count, minS, maxS, y = 0, tilt = 0.3) => {
+    const im = new THREE.InstancedMesh(geo, material, count);
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), v = new THREE.Vector3(), sc = new THREE.Vector3();
+    let n = 0;
+    for (let i = 0; i < count * 3 && n < count; i++) {
+      const x = bounds.minX + rnd() * (bounds.maxX - bounds.minX), z = bounds.minZ + rnd() * (bounds.maxZ - bounds.minZ);
+      if (!isFree(x, z, 0.2)) continue;
+      const s = minS + rnd() * (maxS - minS);
+      e.set((rnd() - 0.5) * tilt, rnd() * Math.PI * 2, (rnd() - 0.5) * tilt);
+      m4.compose(v.set(x, y * s, z), q.setFromEuler(e), sc.set(s, s, s));
+      im.setMatrixAt(n++, m4);
+    }
+    im.count = n; im.receiveShadow = true; group.add(im);
+    return im;
+  };
+  const weed = new THREE.ConeGeometry(0.08, 0.6, 4); weed.translate(0, 0.3, 0);
+  const tuft = new THREE.BufferGeometry();
+  {
+    const blades = []; for (let b = 0; b < 5; b++) { const g = weed.clone(); g.rotateZ((b - 2) * 0.25); g.rotateY(b * 1.3); blades.push(g); }
+    tuft.copy(mergeGeos(blades));
+  }
+  const pebble = new THREE.DodecahedronGeometry(0.12, 0);
+  if (id === 'junkyard') {
+    scatter(tuft, mat('#6b7a32', { flatShading: true }), 500, 0.6, 1.4);
+    scatter(pebble, mat('#6d6258', { flatShading: true }), 400, 0.5, 2, 0.3);
+    scatter(new THREE.BoxGeometry(0.4, 0.05, 0.25), mat('#7a5a3a', { metalness: 0.5, roughness: 0.6 }), 200, 0.6, 1.8, 0.5, 0.8);
+  } else if (id === 'beach') {
+    scatter(tuft, mat('#8fa35a', { flatShading: true }), 220, 0.6, 1.3);
+    scatter(pebble, mat('#bdb3a3', { flatShading: true }), 300, 0.4, 1.4, 0.3);
+    scatter(new THREE.SphereGeometry(0.1, 6, 4, 0, Math.PI * 2, 0, Math.PI / 2), mat('#ffd8c8'), 250, 0.5, 1.4, 0, 0.4);
+  } else if (id === 'city') {
+    scatter(new THREE.PlaneGeometry(0.25, 0.3).rotateX(-Math.PI / 2).translate(0, 0.02, 0), mat('#d8d4c8', { side: THREE.DoubleSide }), 180, 0.6, 1.4, 0, 0.2);
+    scatter(tuft, mat('#3f5a32', { flatShading: true }), 120, 0.4, 0.9);
+  } else if (id === 'warehouse') {
+    scatter(new THREE.PlaneGeometry(0.3, 0.4).rotateX(-Math.PI / 2).translate(0, 0.02, 0), mat('#a8a090', { side: THREE.DoubleSide }), 220, 0.6, 1.4, 0, 0.2);
+    scatter(pebble, mat('#4a4844', { flatShading: true }), 300, 0.3, 1.2, 0.3);
+  }
+
+  // Floating dust motes
+  if (loc.indoor || id === 'junkyard') {
+    const n = loc.indoor ? 700 : 400, pos = new Float32Array(n * 3), base = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) base.set([bounds.minX + rnd() * (bounds.maxX - bounds.minX), 0.3 + rnd() * 7, bounds.minZ + rnd() * (bounds.maxZ - bounds.minZ)], i * 3);
+    const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const dust = new THREE.Points(geo, new THREE.PointsMaterial({ map: glowTexture(), color: loc.indoor ? 0xfff0d0 : 0xffd0a0, size: 0.12, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending }));
+    dust.frustumCulled = false; group.add(dust);
+    animated.push((t) => {
+      for (let i = 0; i < n; i++) {
+        const k = i * 0.37;
+        pos[i * 3] = base[i * 3] + Math.sin(t * 0.21 + k) * 1.2;
+        pos[i * 3 + 1] = base[i * 3 + 1] + Math.sin(t * 0.33 + k * 2) * 0.6;
+        pos[i * 3 + 2] = base[i * 3 + 2] + Math.cos(t * 0.17 + k) * 1.2;
+      }
+      geo.attributes.position.needsUpdate = true;
+    });
+  }
+
+  // Shadows: everything solid casts and receives.
+  group.traverse((o) => {
+    if (!o.isMesh || o.isInstancedMesh || o.userData.noCast) return;
+    const m = Array.isArray(o.material) ? o.material[0] : o.material;
+    if (m.isMeshBasicMaterial || m.isShaderMaterial || m.transparent) return;
+    o.castShadow = true; o.receiveShadow = true;
+  });
 
   function isFree(x, z, margin = 0.6) {
     if (x < bounds.minX + 1 || x > bounds.maxX - 1 || z < bounds.minZ + 1 || z > bounds.maxZ - 1) return false;
@@ -502,9 +687,19 @@ export function buildWorld(id, loc) {
 
   return {
     group, colliders, bounds, isFree,
-    station: { x: stx, z: stz + 1.6 },
+    station: { x: stx, z: stz + 1.6 }, sun: sunLight,
+    envIntensity: loc.indoor ? 0.18 : id === 'city' ? 0.3 : id === 'beach' ? 0.5 : 0.7,
     background: scene.background, fog: scene.fog,
-    update(t) { for (const f of animated) f(t); },
+    update(t, cam) {
+      for (const f of animated) f(t);
+      if (sky && cam) sky.position.copy(cam.position);
+      if (sunLight && cam) {
+        // Keep the shadow camera centred on the player, snapped to texels to avoid shimmering.
+        const step = 80 / 2048;
+        sunLight.target.position.set(Math.round(cam.position.x / step) * step, 0, Math.round(cam.position.z / step) * step);
+        sunLight.position.copy(sunLight.target.position).add(sunLight.userData.offset);
+      }
+    },
     dispose() {
       group.traverse((o) => {
         o.geometry?.dispose?.();
