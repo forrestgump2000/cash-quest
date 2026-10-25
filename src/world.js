@@ -203,30 +203,113 @@ export function buildWorld(id, loc) {
   const sky = skyCfg ? makeSky(skyCfg) : null;
   if (sky) { group.add(sky); scene.fog.color.set(skyCfg.horizon).lerp(new THREE.Color(loc.fog[0]), 0.35); scene.background = scene.fog.color.clone(); }
 
-  // Sell station
-  const station = new THREE.Group();
-  station.position.set(0, 0, -6);
-  group.add(station);
+  // Sell station: wooden counter, striped awning and a framed marquee sign.
   const stx = 0, stz = -6;
-  addBox(5, 1.1, 1.4, '#2f7d3a', stx, 0, stz + 0.6, {});
-  addBox(5.4, 0.15, 1.8, '#f5d36b', stx, 1.1, stz + 0.6, { collide: false });
-  addBox(0.25, 3.4, 0.25, '#e9e2cf', stx - 2.5, 0, stz - 0.3, { collide: false });
-  addBox(0.25, 3.4, 0.25, '#e9e2cf', stx + 2.5, 0, stz - 0.3, { collide: false });
-  const roof = addBox(6, 0.3, 2.6, '#c0392b', stx, 3.4, stz + 0.2, { collide: false });
-  roof.rotation.x = -0.12;
-  const signTex = textTexture([
-    { text: '$ SELL & SHOP $', font: 'bold 64px sans-serif' },
-  ], 512, 128, '#ffc93c', '#3a2300');
-  const sign = new THREE.Mesh(new THREE.PlaneGeometry(5, 1.25), new THREE.MeshBasicMaterial({ map: signTex }));
-  sign.position.set(stx, 4.35, stz + 1.0); group.add(sign);
+  const wood = canvasTexture(256, (g, sz) => {
+    g.fillStyle = '#7a4a26'; g.fillRect(0, 0, sz, sz);
+    for (let y = 0; y < sz; y += 32) {
+      g.fillStyle = `hsl(25, 45%, ${26 + rnd() * 10}%)`; g.fillRect(0, y + 1, sz, 30);
+      g.strokeStyle = 'rgba(0,0,0,.18)'; g.lineWidth = 1;
+      for (let k = 0; k < 6; k++) { const yy = y + 4 + rnd() * 24; g.beginPath(); g.moveTo(0, yy); g.bezierCurveTo(sz * 0.3, yy + 3, sz * 0.6, yy - 3, sz, yy); g.stroke(); }
+    }
+  });
+  const woodMat = new THREE.MeshStandardMaterial({ map: wood, roughness: 0.8 });
+  const darkWood = new THREE.MeshStandardMaterial({ color: '#3b2414', roughness: 0.7 });
+  const goldMat = new THREE.MeshStandardMaterial({ color: '#ffc93c', metalness: 0.9, roughness: 0.3 });
+  // Counter
+  const front = (() => {
+    const c = document.createElement('canvas'); c.width = 1024; c.height = 224;
+    const g = c.getContext('2d');
+    g.fillStyle = '#1f5a34'; g.fillRect(0, 0, 1024, 224);
+    g.fillStyle = '#2a7343'; for (let x = 0; x < 1024; x += 64) g.fillRect(x + 4, 0, 56, 224);
+    g.fillStyle = '#ffc93c'; g.strokeStyle = '#3a2300'; g.lineWidth = 10;
+    g.beginPath(); g.arc(512, 112, 84, 0, 7); g.fill(); g.stroke();
+    g.font = '130px "Lilita One", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillStyle = '#7a4b00'; g.fillText('$', 512, 120);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+  })();
+  const counterFrontMat = new THREE.MeshStandardMaterial({ map: front, roughness: 0.7 });
+  const counter = new THREE.Mesh(new THREE.BoxGeometry(5, 1.1, 1.4), [darkWood, darkWood, woodMat, darkWood, counterFrontMat, darkWood]);
+  counter.position.set(stx, 0.55, stz + 0.6); group.add(counter);
+  colliders.push({ minX: stx - 2.5, maxX: stx + 2.5, minZ: stz - 0.1, maxZ: stz + 1.3 });
+  const top = new THREE.Mesh(new THREE.BoxGeometry(5.4, 0.12, 1.7), woodMat); top.position.set(stx, 1.16, stz + 0.6); group.add(top);
+  // Coins and a gem on the counter
+  for (let i = 0; i < 5; i++) {
+    const c = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.03, 16), goldMat);
+    c.position.set(stx - 1.6 + (i % 3) * 0.06, 1.24 + Math.floor(i / 3) * 0.035 + (i % 3) * 0.035, stz + 0.7); group.add(c);
+  }
+  const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.13), new THREE.MeshStandardMaterial({ color: '#4ade80', metalness: 0.1, roughness: 0.05, emissive: '#1f8a4a', emissiveIntensity: 0.5 }));
+  gem.position.set(stx + 1.7, 1.38, stz + 0.6); group.add(gem);
+  animated.push((t) => { gem.rotation.y = t; });
+  // Posts and back wall
+  for (const px of [-2.55, 2.55]) {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.22, 3.3, 0.22), darkWood); post.position.set(stx + px, 1.65, stz - 0.2); group.add(post);
+    const fpost = new THREE.Mesh(new THREE.BoxGeometry(0.16, 2.9, 0.16), darkWood); fpost.position.set(stx + px, 1.45, stz + 1.35); group.add(fpost);
+  }
+  const back = new THREE.Mesh(new THREE.BoxGeometry(5.2, 2.9, 0.12), woodMat); back.position.set(stx, 1.45, stz - 0.25); group.add(back);
+  // Striped awning
+  const stripes = canvasTexture(256, (g, sz) => {
+    for (let i = 0; i < 8; i++) { g.fillStyle = i % 2 ? '#f4efe4' : '#d7392c'; g.fillRect(i * sz / 8, 0, sz / 8, sz); }
+  });
+  stripes.repeat.set(1, 1);
+  const awnMat = new THREE.MeshStandardMaterial({ map: stripes, roughness: 0.85, side: THREE.DoubleSide });
+  const awning = new THREE.Mesh(new THREE.PlaneGeometry(5.8, 2.1), awnMat);
+  awning.position.set(stx, 3.1, stz + 0.75); awning.rotation.x = -Math.PI / 2 + 0.38; group.add(awning);
+  // Scalloped valance along the awning's front edge
+  for (let i = 0; i < 8; i++) {
+    const sc = new THREE.Mesh(new THREE.CircleGeometry(0.36, 16, Math.PI, Math.PI), new THREE.MeshStandardMaterial({ color: i % 2 ? '#f4efe4' : '#d7392c', roughness: 0.85, side: THREE.DoubleSide }));
+    sc.position.set(stx - 2.53 + i * 0.725, 2.72, stz + 1.74); group.add(sc);
+  }
+  // Marquee sign
+  const signTex = (() => {
+    const c = document.createElement('canvas'); c.width = 1024; c.height = 256;
+    const g = c.getContext('2d');
+    const grd = g.createLinearGradient(0, 0, 0, 256); grd.addColorStop(0, '#1c3f2a'); grd.addColorStop(1, '#0d2216');
+    g.fillStyle = grd; g.fillRect(0, 0, 1024, 256);
+    g.strokeStyle = '#ffc93c'; g.lineWidth = 8; g.strokeRect(22, 22, 980, 212);
+    const coin = (x) => {
+      g.fillStyle = '#ffc93c'; g.beginPath(); g.arc(x, 128, 56, 0, 7); g.fill();
+      g.fillStyle = '#d9900f'; g.beginPath(); g.arc(x, 128, 44, 0, 7); g.fill();
+      g.fillStyle = '#fff3b8'; g.font = 'bold 72px "Lilita One", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('$', x, 132);
+    };
+    coin(110); coin(914);
+    g.font = '120px "Lilita One", "Arial Black", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.lineJoin = 'round'; g.lineWidth = 14; g.strokeStyle = '#3a2300'; g.strokeText('SELL & SHOP', 512, 134);
+    const tg = g.createLinearGradient(0, 70, 0, 190); tg.addColorStop(0, '#fff1a8'); tg.addColorStop(0.5, '#ffc93c'); tg.addColorStop(1, '#e09412');
+    g.fillStyle = tg; g.fillText('SELL & SHOP', 512, 134);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t;
+  })();
+  const signFace = new THREE.MeshStandardMaterial({ map: signTex, emissive: 0xffffff, emissiveMap: signTex, emissiveIntensity: 0.55, roughness: 0.6 });
+  const sign = new THREE.Mesh(new THREE.BoxGeometry(5.2, 1.3, 0.18), [darkWood, darkWood, darkWood, darkWood, signFace, signFace]);
+  sign.position.set(stx, 4.25, stz + 0.2); group.add(sign);
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(5.5, 1.6, 0.14), darkWood); frame.position.set(stx, 4.25, stz + 0.16); group.add(frame);
+  for (const px of [-1.8, 1.8]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.14, 1.1, 0.14), darkWood); leg.position.set(stx + px, 3.2, stz + 0.16); group.add(leg);
+  }
+  // Chasing marquee bulbs around the sign
+  const bulbs = [], bulbGeo = new THREE.SphereGeometry(0.065, 8, 6);
+  const bulbOn = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffe7a0).multiplyScalar(3) });
+  const bulbOff = new THREE.MeshBasicMaterial({ color: 0x5a4a2a });
+  const ring = [];
+  for (let x = -2.6; x <= 2.61; x += 0.325) ring.push([x, 0.72]);
+  for (let y = 0.4; y >= -0.41; y -= 0.4) ring.push([2.68, y]);
+  for (let x = 2.6; x >= -2.61; x -= 0.325) ring.push([x, -0.72]);
+  for (let y = -0.4; y <= 0.41; y += 0.4) ring.push([-2.68, y]);
+  ring.forEach(([x, y], i) => {
+    for (const side of [1, -1]) {
+      const b = new THREE.Mesh(bulbGeo, bulbOn); b.position.set(stx + x, 4.25 + y, stz + 0.16 + side * 0.09); b.userData.i = i; b.userData.noCast = true;
+      group.add(b); bulbs.push(b);
+    }
+  });
+  animated.push((t) => { const k = Math.floor(t * 6); for (const b of bulbs) b.material = (b.userData.i + k) % 3 === 0 ? bulbOff : bulbOn; });
   const beacon = new THREE.Mesh(
     new THREE.CylinderGeometry(0.6, 0.6, 60, 16, 1, true),
     new THREE.MeshBasicMaterial({ color: 0x4ade80, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false })
   );
-  beacon.position.set(stx, 30, stz - 0.5); group.add(beacon);
-  animated.push((t) => { beacon.material.opacity = 0.12 + Math.sin(t * 2) * 0.05; });
-  const stLight = new THREE.PointLight(0xffe7a8, 12, 12, 1.4);
-  stLight.position.set(stx, 3, stz + 1.5); group.add(stLight);
+  beacon.position.set(stx, 35, stz - 0.5); group.add(beacon);
+  animated.push((t) => { beacon.material.opacity = 0.1 + Math.sin(t * 2) * 0.04; });
+  const stLight = new THREE.PointLight(0xffe0a0, 6, 7, 1.5);
+  stLight.position.set(stx, 2.5, stz + 0.6); group.add(stLight);
 
   const builders = { junkyard, beach, city, warehouse, museum };
   builders[id]();

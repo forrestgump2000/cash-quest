@@ -20,6 +20,7 @@ const defaults = () => ({
   luck: 0, potionLeft: 0,
   unlocked: ['junkyard'], loc: 'junkyard', bag: [], best: null,
   gfx: matchMedia('(pointer: coarse)').matches ? 'low' : 'high',
+  detSound: true, quests: 0,
 });
 let state = defaults();
 try {
@@ -247,7 +248,8 @@ const sfx = {
   cash() { [0, 1, 2, 3].forEach((i) => tone(1200 + i * 300, 0.12, 'square', 0.07, i * 0.06)); tone(300, 0.3, 'triangle', 0.15); },
   buy() { tone(660, 0.1, 'triangle', 0.15); tone(990, 0.2, 'triangle', 0.15, 0.08); },
   error() { tone(180, 0.2, 'sawtooth', 0.08); },
-  beep(s) { tone(600 + s * 900, 0.05, 'square', 0.05); },
+  // Soft, low ping that rises gently as you get closer.
+  beep(s) { tone(320 + s * 260, 0.18, 'sine', 0.018 + s * 0.022); tone(640 + s * 520, 0.08, 'sine', 0.006 + s * 0.008); },
   dig() { tone(120 + Math.random() * 60, 0.08, 'sawtooth', 0.05); },
 };
 
@@ -321,9 +323,19 @@ addEventListener('keydown', (e) => {
   keys.add(e.code);
   if (e.code === 'KeyE' && !e.repeat) interact();
   if (e.code === 'KeyF' && !e.repeat) toggleLight();
+  if (e.code === 'KeyM' && !e.repeat) toggleDetSound();
 });
 addEventListener('keyup', (e) => keys.delete(e.code));
 addEventListener('blur', () => keys.clear());
+
+function toggleDetSound() {
+  state.detSound = !state.detSound; save();
+  $('detMute').textContent = state.detSound ? '🔊' : '🔇';
+  toast(state.detSound ? '🔊 Detector sound on' : '🔇 Detector sound off');
+}
+$('detMute').textContent = state.detSound ? '🔊' : '🔇';
+$('detMute').addEventListener('click', toggleDetSound);
+$('detMute').addEventListener('touchstart', (e) => { e.preventDefault(); e.stopPropagation(); toggleDetSound(); }, { passive: false });
 
 function toggleLight() {
   if (state.gear.flashlight === 0) { toast('🔦 You need a flashlight! Buy one at the station.', '#ff9b9b'); return; }
@@ -502,7 +514,22 @@ function renderTab(tab) {
         <div class="nm">${L.name}</div><div class="lvl">Loot value x${L.mult}${L.dark > 0.7 ? ' · 🔦 very dark' : ''}</div><div class="ds">${L.desc}</div></div>
         <div data-loc="${id}">${here ? '<button class="buy owned" disabled>YOU\'RE HERE</button>' : owned ? '<button class="buy go">TRAVEL</button>' : buyButton(L.price, null, '🔓 ' + fmt(L.price))}</div></div>`;
     }
+    if (state.unlocked.includes('museum')) {
+      html += `<div class="row prestige"><div class="ico">🏆</div><div class="info">
+        <div class="nm">Start a New Quest</div>
+        <div class="lvl">You made it to the Museum!${state.quests ? ` · Quests completed: ${state.quests}` : ''}</div>
+        <div class="ds">Reset everything (money, bag, gear, luck and locations) and start over in the Junkyard.</div></div>
+        <div><button class="buy danger" id="newQuest">RESET ALL</button></div></div>`;
+    }
     body.innerHTML = html;
+    const nq = $('newQuest');
+    if (nq) nq.onclick = () => {
+      if (!nq.dataset.armed) { nq.dataset.armed = '1'; nq.textContent = 'TAP AGAIN TO CONFIRM'; return; }
+      const keep = { gfx: state.gfx, detSound: state.detSound, quests: (state.quests || 0) + 1 };
+      state = { ...defaults(), ...keep };
+      lightOn = true; save(); closeStation(); loadLocation('junkyard');
+      toast(`🏆 Quest #${keep.quests} complete! Starting fresh in the Junkyard.`, '#ffc93c');
+    };
     body.querySelectorAll('[data-loc] .buy:not(.owned)').forEach((btn) => btn.onclick = () => {
       const id = btn.parentElement.dataset.loc, L = LOCATIONS[id];
       if (!state.unlocked.includes(id)) {
@@ -727,9 +754,9 @@ function tick() {
     const strength = nearestBuried ? 1 - nd / range : 0;
     $('detFill').style.width = `${strength * 100}%`;
     detectorModel.userData.led.material.color.setHSL(0.33 - strength * 0.33, 1, 0.5);
-    if (active && strength > 0) {
+    if (active && strength > 0.12 && state.detSound) {
       beepTimer -= dt;
-      if (beepTimer <= 0) { sfx.beep(strength); beepTimer = 0.9 - strength * 0.82; }
+      if (beepTimer <= 0) { sfx.beep(strength); beepTimer = 1.5 - strength * 1.15; }
     }
   }
   if (active) drawRadar(nearestBuried);
@@ -742,7 +769,13 @@ function tick() {
   if (state.gfx === 'high') composer.render(); else renderer.render(scene, camera);
 }
 
-loadLocation(LOCATIONS[state.loc] && state.unlocked.includes(state.loc) ? state.loc : 'junkyard');
-tick();
+const fontsReady = Promise.race([
+  document.fonts?.load('120px "Lilita One"') ?? Promise.resolve(),
+  new Promise((r) => setTimeout(r, 2500)),
+]).catch(() => {});
+fontsReady.then(() => {
+  loadLocation(LOCATIONS[state.loc] && state.unlocked.includes(state.loc) ? state.loc : 'junkyard');
+  tick();
+});
 
-if (import.meta.env.DEV) window.__cq = { state, player, get items() { return items; }, loadLocation, openStation, interact, applyGear, updateHud };
+if (import.meta.env.DEV) window.__cq = { get state() { return state; }, player, get items() { return items; }, loadLocation, openStation, interact, applyGear, updateHud };
